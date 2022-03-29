@@ -1,0 +1,23 @@
+[package]
+type = 'bash'
+name = 'bash_config'
+slug = 'bash_config'
+version = '0.1.0'
+authors = ['Edwin Kofler <edwin@kofler.dev>']
+description = 'Web interface for configuring Bash'
+
+[run]
+dependencies = []
+sourceDirs = ['pkg/src/bash-http', 'pkg/src/util']
+builtinDirs = []
+binDirs = ['bin']
+completionDirs = []
+manDirs = []
+
+[run.shellEnvironment]
+
+[run.setOptions]
+errexit = 'on'
+pipefail = 'on'
+
+[run.shoptOptions]
