@@ -57,13 +57,35 @@ main.bash_config() {
 			if ! accept -b "$BIND_ADDRESS" "${HTTP_PORT}"; then
 				print.die "Could not listen on ${BIND_ADDRESS}:${HTTP_PORT}"
 			fi
-
 			print.info "Spawning (ACCEPT_FD: $ACCEPT_FD)"
 
-			printf '1' > "$server_tmp_dir/spawnNewProcess"
-			printf -v TIME_FORMATTED '%(%d/%b/%Y:%H:%M:%S)T' '-1'
-			printf -v TIME_SECONDS '%(%s)T' '-1'
-			parseAndPrint <&${ACCEPT_FD} >&${ACCEPT_FD}
+			printf '%s' '1' > "$server_tmp_dir/spawnNewProcess"
+			printf -v 'TIME_FORMATTED' '%(%d/%b/%Y:%H:%M:%S)T' '-1'
+			printf -v 'TIME_SECONDS' '%(%s)T' '-1'
+			{
+				# We will alway reset all variables and build them again
+				local REQUEST_METHOD= REQUEST_PATH= HTTP_VERSION= QUERY_STRING=
+				local -A HTTP_HEADERS=()
+				local -A POST=()
+				local -A GET=()
+				local -A HTTP_RESPONSE_HEADERS=()
+				local -A COOKIE=()
+
+				# Ensure mktemp will create files inside this temp dir
+				local -r TMPDIR="$server_tmp_dir"
+
+				parseHttpRequest
+				parseHttpHeaders
+				parseGetData
+				parseCookieData
+
+				# Parse post data only if length is (a number and) > 0 and post is specified
+				if [ "$REQUEST_METHOD" = 'POST' ] && (( ${HTTP_HEADERS['Content-Length']} > 0 )); then
+					parsePostData
+				fi
+
+				buildResponse
+			} <&${ACCEPT_FD} >&${ACCEPT_FD}
 
 			# XXX: This is needed to close the connection to the client
 			# XXX: Currently no other way found around it.. :(
@@ -179,85 +201,50 @@ buildResponse() {
 	# Every output will first be saved in a file and then printed to the output
 	# Like this we can build a clean output to the client
 
-	# build a default header
+	# Build defualt header
 	httpSendStatus 200
 
-	# get mime type
-	IFS=. read -r _ extension <<<"$REQUEST_PATH"
-	[[ -z "${MIME_TYPES["${extension:-html}"]}" ]] || HTTP_RESPONSE_HEADERS["Content-Type"]="${MIME_TYPES["${extension:-html}"]}"
+	# Get mime type
+	IFS='.' read -r _ extension <<<"$REQUEST_PATH"
+	if [[ -n "${MIME_TYPES["${extension:-html}"]}" ]]; then
+		HTTP_RESPONSE_HEADERS["Content-Type"]="${MIME_TYPES["${extension:-html}"]}"
+	fi
 
 	"$run" > "$TMPDIR/output"
 
-	# get content-legth
-	PATH="" type -p "finfo" &>/dev/null && HTTP_RESPONSE_HEADERS["Content-Length"]="$(finfo -s "$TMPDIR/output")"
-
-	# print output to logfile
-	(( LOGGING )) && logPrint
-
-	buildHttpHeaders
-	# From HTTP RFC 2616 send newline before body
-	printf "\n"
-
-	printf '%s\n' "$(<"$TMPDIR/output")"
-
-	# remove tmpfile, this should be trapped...
-	# XXX: No needed anymore, since the clean will do the job for use
-	# rm "$tmpFile"
-}
-
-parseAndPrint(){
-	# We will alway reset all variables and build them again
-	local REQUEST_METHOD REQUEST_PATH HTTP_VERSION QUERY_STRING
-	local -A HTTP_HEADERS
-	local -A POST
-	local -A GET
-	local -A HTTP_RESPONSE_HEADERS
-	local -A COOKIE
-
-	# Now mktemp will write create files inside the temporary directory
-	local -r TMPDIR="$server_tmp_dir"
-
-	# Parse Request
-	parseHttpRequest
-
-	# Create headers assoc
-	parseHttpHeaders
-
-	# Parse Get Data
-	parseGetData
-
-	# Parse cookie data
-	parseCookieData
-
-	# Parse post data only if length is > 0 and post is specified
-	# bash (( will not fail if var is not a number, it will just return 1, no need of int check
-	if [[ "$REQUEST_METHOD" == "POST" ]] && (( ${HTTP_HEADERS['Content-Length']} > 0 )); then
-		parsePostData
+	# Get content-length
+	if PATH='' type -p 'finfo' &>/dev/null; then
+		HTTP_RESPONSE_HEADERS["Content-Length"]=$(finfo -s "$TMPDIR/output")
 	fi
 
-	buildResponse
-}
+	if (( LOGGING )); then
+		logPrint
+	fi
 
+	buildHttpHeaders
+	printf "\n" # HTTP RFC 2616 send newline before body
+	cat "$TMPDIR/output"
+}
 
 logPrint(){
 	local -A logformat
 	local output="${LOGFORMAT}"
 
-	logformat["%a"]="$RHOST"
-	logformat["%A"]="${BIND_ADDRESS}"
-	logformat["%b"]="${HTTP_RESPONSE_HEADERS["Content-Length"]}"
-	logformat["%m"]="$REQUEST_METHOD"
-	logformat["%q"]="$QUERY_STRING"
-	logformat["%t"]="$TIME_FORMATTED"
-	logformat["%s"]="${HTTP_RESPONSE_HEADERS['status']%% *}"
-	logformat["%T"]="$(( $(printf '%(%s)T' -1 ) - $TIME_SECONDS))"
-	logformat["%U"]="$REQUEST_PATH"
+	logformat["%a"]=$RHOST
+	logformat["%A"]=$BIND_ADDRESS
+	logformat["%b"]=${HTTP_RESPONSE_HEADERS["Content-Length"]}
+	logformat["%m"]=$REQUEST_METHOD
+	logformat["%q"]=$QUERY_STRING
+	logformat["%t"]=$TIME_FORMATTED
+	logformat["%s"]=${HTTP_RESPONSE_HEADERS['status']%% *}
+	logformat["%T"]=$(( $(printf '%(%s)T' -1 ) - TIME_SECONDS))
+	logformat["%U"]=$REQUEST_PATH
 
-
+	local key=
 	for key in "${!logformat[@]}"; do
 		output="${output//"$key"/"${logformat[$key]}"}"
-	done
+	done; unset -v key
 
-	printf '%s\n' "$output" >> "$LOGFILE"
+	cat <<< "$output" >> "$LOGFILE"
 }
 

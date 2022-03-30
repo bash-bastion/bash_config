@@ -2,14 +2,17 @@
 
 runner(){
 	case $REQUEST_PATH in
+	'/')
+		http.serve 'root.html'
+		;;
 	'/a')
-		echo 'a'
+		http.serve 'a.html'
 		;;
 	'/b')
-		echo 'b'
+		http.serve 'b.html'
 		;;
 	'/c')
-		echo 'c'
+		http.serve 'c.html'
 		;;
 	*)
 		http.serve '404.html'
