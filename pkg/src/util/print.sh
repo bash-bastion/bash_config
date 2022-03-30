@@ -4,7 +4,7 @@
 # @brief Prints statements that are not indented
 
 print.die() {
-	bprint.error "$1"
+	print.error "$1"
 	exit 1
 }
 

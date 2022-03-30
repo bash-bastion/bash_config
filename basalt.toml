@@ -21,3 +21,4 @@ errexit = 'on'
 pipefail = 'on'
 
 [run.shoptOptions]
+shift_verbose = 'on'
