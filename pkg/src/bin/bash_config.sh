@@ -49,7 +49,7 @@ main.bash_config() {
 
 		# Create temporary directory for each request
 		server_tmp_dir=$(mktemp -d)
-		: > "$server_tmp_dir/spawnNewProcess"
+		: > "$server_tmp_dir/spawn-new-process"
 		(
 			# XXX: Accept puts the connection in a TIME_WAIT status.. :(
 			# Verifiy if bind_address is specified default to 127.0.0.1
@@ -59,16 +59,17 @@ main.bash_config() {
 			fi
 			print.info "Spawning (ACCEPT_FD: $ACCEPT_FD)"
 
-			printf '%s' '1' > "$server_tmp_dir/spawnNewProcess"
-			printf -v 'TIME_FORMATTED' '%(%d/%b/%Y:%H:%M:%S)T' '-1'
-			printf -v 'TIME_SECONDS' '%(%s)T' '-1'
+			printf '%s' '1' > "$server_tmp_dir/spawn-new-process"
+			printf -v TIME_FORMATTED '%(%d/%b/%Y:%H:%M:%S)T' '-1'
+			printf -v TIME_SECONDS '%(%s)T' '-1'
 			{
 				# We will alway reset all variables and build them again
-				local REQUEST_METHOD= REQUEST_PATH= HTTP_VERSION= QUERY_STRING=
-				local -A HTTP_HEADERS=()
-				local -A POST=()
+				local HTTP_VERSION=
+				local REQ_METHOD= REQ_URL= REQ_QUERY=
+				local -A REQ_HEADERS=()
 				local -A GET=()
-				local -A HTTP_RESPONSE_HEADERS=()
+				local -A POST=()
+				local -A RES_HEADERS=()
 				local -A COOKIE=()
 
 				# Ensure mktemp will create files inside this temp dir
@@ -80,17 +81,46 @@ main.bash_config() {
 				parseCookieData
 
 				# Parse post data only if length is (a number and) > 0 and post is specified
-				if [ "$REQUEST_METHOD" = 'POST' ] && (( ${HTTP_HEADERS['Content-Length']} > 0 )); then
+				if [ "$REQ_METHOD" = 'POST' ] && (( ${REQ_HEADERS['Content-Length']} > 0 )); then
 					parsePostData
 				fi
 
-				buildResponse
+				# SEND RESPONSE
+				# Every output will first be saved in a file and then printed to the output
+				# Like this we can build a clean output to the client
+
+				# Build defualt header
+				httpSendStatus 200
+
+				# Get mime type
+				IFS='.' read -r _ extension <<< "$REQ_URL"
+				: "${extension:=html}"
+				if [ -n "${MIME_TYPES[$extension]}" ]; then
+					RES_HEADERS["Content-Type"]="${MIME_TYPES[$extension]}"
+				fi
+
+				"$run" > "$TMPDIR/output"
+
+				# Get content-length
+				if PATH='' type -p 'finfo' &>/dev/null; then
+					RES_HEADERS["Content-Length"]=$(finfo -s "$TMPDIR/output")
+				fi
+
+				if (( LOGGING )); then
+					logPrint
+				fi
+
+				buildHttpHeaders
+				printf '\n' # HTTP RFC 2616 send newline before body
+				printf '%s\n' "$(<"$TMPDIR/output")"
+				# cat "$TMPDIR/output"
 			} <&${ACCEPT_FD} >&${ACCEPT_FD}
 
 			# XXX: This is needed to close the connection to the client
 			# XXX: Currently no other way found around it.. :(
 			exec {ACCEPT_FD}>&-
 
+			# FIXME
 			closeee() {
 				exec {ACCEPT_FD}>&-
 			}
@@ -99,7 +129,7 @@ main.bash_config() {
 			rm -rf "$server_tmp_dir"
 		) &
 
-		until [[ -s "$server_tmp_dir/spawnNewProcess" || ! -f "$server_tmp_dir/spawnNewProcess" ]]; do :; done
+		until [[ -s "$server_tmp_dir/spawn-new-process" || ! -f "$server_tmp_dir/spawn-new-process" ]]; do :; done
 	done
 }
 
@@ -112,32 +142,32 @@ urldecode() {
 
 parseHttpRequest(){
 	# Get information about the request
-	read -r REQUEST_METHOD REQUEST_PATH HTTP_VERSION
+	read -r REQ_METHOD REQ_URL HTTP_VERSION
 	HTTP_VERSION="${HTTP_VERSION%%$'\r'}"
 }
 
 parseHttpHeaders(){
 	local line=
-	# Split headers and put it inside HTTP_HEADERS, so it can be reused
+	# Split headers and put it inside REQ_HEADERS, so it can be reused
 	while read -r line; do
 		line="${line%%$'\r'}"
 
 		[[ -z "$line" ]] && return
-		HTTP_HEADERS["${line%%:*}"]="${line#*:}"
+		REQ_HEADERS["${line%%:*}"]="${line#*:}"
 	done
 }
 
 parseGetData(){
 	local entry
-	# Split QUERY_STRING into an assoc, so it can be easy reused
-	IFS='?' read -r REQUEST_PATH get <<<"$REQUEST_PATH"
+	# Split REQ_QUERY into an assoc, so it can be easy reused
+	IFS='?' read -r REQ_URL get <<<"$REQ_URL"
 
 	# Url decode get data
 	get="$(urldecode "$get")"
 
 	# Split html #
-	IFS='#' read -r REQUEST_PATH _ <<<"$REQUEST_PATH"
-	QUERY_STRING="$get"
+	IFS='#' read -r REQ_URL _ <<<"$REQ_URL"
+	REQ_QUERY="$get"
 	IFS='&' read -ra data <<<"$get"
 	for entry in "${data[@]}"; do
 		GET["${entry%%=*}"]="${entry#*:}"
@@ -146,15 +176,15 @@ parseGetData(){
 
 parsePostData(){
 	local entry
-	# Split POst data into an assoc if is a form, if not create a key raw
-	if [[ "${HTTP_HEADERS["Content-type"]}" == "application/x-www-form-urlencoded" ]]; then
-		IFS='&' read -rN "${HTTP_HEADERS["Content-Length"]}" -a data
+	# Split Post data into an assoc if is a form, if not create a key raw
+	if [[ "${REQ_HEADERS["Content-type"]}" == "application/x-www-form-urlencoded" ]]; then
+		IFS='&' read -rN "${REQ_HEADERS["Content-Length"]}" -a data
 		for entry in "${data[@]}"; do
 			entry="${entry%%$'\r'}"
 			POST["${entry%%=*}"]="${entry#*:}"
 		done
 	else
-		read -rN "${HTTP_HEADERS["Content-Length"]}" data
+		read -rN "${REQ_HEADERS["Content-Length"]}" data
 		POST["raw"]="${data%%$'\r'}"
 	fi
 }
@@ -162,7 +192,7 @@ parsePostData(){
 parseCookieData(){
 	local -a cookie
 	local entry key value
-	IFS=';' read -ra cookie <<<"${HTTP_HEADERS["Cookie"]}"
+	IFS=';' read -ra cookie <<<"${REQ_HEADERS["Cookie"]}"
 
 	for entry in "${cookie[@]}"; do
 		IFS='=' read -r key value <<<"$entry"
@@ -184,46 +214,17 @@ httpSendStatus() {
 		[500]="500 Internal Server Error"
 	)
 
-	HTTP_RESPONSE_HEADERS['status']="${status_code[${1:-200}]}"
+	RES_HEADERS['status']="${status_code[${1:-200}]}"
 }
 
 buildHttpHeaders() {
 	# We will first send the status header and then all the other headers
-	printf '%s %s\n' "$HTTP_VERSION" "${HTTP_RESPONSE_HEADERS['status']}"
-	unset HTTP_RESPONSE_HEADERS['status']
+	printf '%s %s\n' "$HTTP_VERSION" "${RES_HEADERS['status']}"
+	unset RES_HEADERS['status']
 
-	for key in "${!HTTP_RESPONSE_HEADERS[@]}"; do
-		printf '%s: %s\n' "$key" "${HTTP_RESPONSE_HEADERS[$key]}"
+	for key in "${!RES_HEADERS[@]}"; do
+		printf '%s: %s\n' "$key" "${RES_HEADERS[$key]}"
 	done
-}
-
-buildResponse() {
-	# Every output will first be saved in a file and then printed to the output
-	# Like this we can build a clean output to the client
-
-	# Build defualt header
-	httpSendStatus 200
-
-	# Get mime type
-	IFS='.' read -r _ extension <<<"$REQUEST_PATH"
-	if [[ -n "${MIME_TYPES["${extension:-html}"]}" ]]; then
-		HTTP_RESPONSE_HEADERS["Content-Type"]="${MIME_TYPES["${extension:-html}"]}"
-	fi
-
-	"$run" > "$TMPDIR/output"
-
-	# Get content-length
-	if PATH='' type -p 'finfo' &>/dev/null; then
-		HTTP_RESPONSE_HEADERS["Content-Length"]=$(finfo -s "$TMPDIR/output")
-	fi
-
-	if (( LOGGING )); then
-		logPrint
-	fi
-
-	buildHttpHeaders
-	printf "\n" # HTTP RFC 2616 send newline before body
-	cat "$TMPDIR/output"
 }
 
 logPrint(){
@@ -232,13 +233,13 @@ logPrint(){
 
 	logformat["%a"]=$RHOST
 	logformat["%A"]=$BIND_ADDRESS
-	logformat["%b"]=${HTTP_RESPONSE_HEADERS["Content-Length"]}
-	logformat["%m"]=$REQUEST_METHOD
-	logformat["%q"]=$QUERY_STRING
+	logformat["%b"]=${RES_HEADERS["Content-Length"]}
+	logformat["%m"]=$REQ_METHOD
+	logformat["%q"]=$REQ_QUERY
 	logformat["%t"]=$TIME_FORMATTED
-	logformat["%s"]=${HTTP_RESPONSE_HEADERS['status']%% *}
+	logformat["%s"]=${RES_HEADERS['status']%% *}
 	logformat["%T"]=$(( $(printf '%(%s)T' -1 ) - TIME_SECONDS))
-	logformat["%U"]=$REQUEST_PATH
+	logformat["%U"]=$REQ_URL
 
 	local key=
 	for key in "${!logformat[@]}"; do
