@@ -58,3 +58,26 @@ print.green() {
 		printf "\033[0;32m%11s\033[0m %s\n" "$1" "$2"
 	fi
 }
+
+print.log(){
+	local -A logformat
+	local output="${LOGFORMAT}"
+
+	logformat["%a"]=$RHOST
+	logformat["%A"]=$BIND_ADDRESS
+	logformat["%b"]=${RES_HEADERS["Content-Length"]}
+	logformat["%m"]=$REQ_METHOD
+	logformat["%q"]=$REQ_QUERY
+	logformat["%t"]=$TIME_FORMATTED
+	logformat["%s"]=${RES_HEADERS['status']%% *}
+	logformat["%T"]=$(( $(printf '%(%s)T' -1 ) - TIME_SECONDS))
+	logformat["%U"]=$REQ_URL
+
+	local key=
+	for key in "${!logformat[@]}"; do
+		output="${output//"$key"/"${logformat[$key]}"}"
+	done; unset -v key
+
+	cat <<< "$output" >> "$LOGFILE"
+}
+

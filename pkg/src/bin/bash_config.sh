@@ -33,15 +33,15 @@ main.bash_config() {
 	fi
 
 	# Source the runner
-	local arg="$BASALT_PACKAGE_DIR/pkg/src/example.sh"
+	local arg="$BASALT_PACKAGE_DIR/pkg/src/server.sh"
 	if [ -z "$arg" ]; then
 		print.die "Must profide file to source as first argument"
 	fi
 	source "$arg"
-	if ! declare -f runner &>/dev/null; then
+	if ! declare -f server &>/dev/null; then
 			print.die 'The source file need a function nammed runner which will be executed on each request'
 	fi
-	run='runner'
+	run='server'
 
 	# Listen
 	while :; do
@@ -107,24 +107,18 @@ main.bash_config() {
 				fi
 
 				if (( LOGGING )); then
-					logPrint
+					print.log
 				fi
 
 				buildHttpHeaders
 				printf '\n' # HTTP RFC 2616 send newline before body
 				printf '%s\n' "$(<"$TMPDIR/output")"
 				# cat "$TMPDIR/output"
-			} <&${ACCEPT_FD} >&${ACCEPT_FD}
+			} <& "${ACCEPT_FD}" >& "${ACCEPT_FD}"
 
 			# XXX: This is needed to close the connection to the client
 			# XXX: Currently no other way found around it.. :(
 			exec {ACCEPT_FD}>&-
-
-			# FIXME
-			closeee() {
-				exec {ACCEPT_FD}>&-
-			}
-			trap closeee SIGINT
 
 			rm -rf "$server_tmp_dir"
 		) &
@@ -175,7 +169,7 @@ parseGetData(){
 }
 
 parsePostData(){
-	local entry
+	local entry=
 	# Split Post data into an assoc if is a form, if not create a key raw
 	if [[ "${REQ_HEADERS["Content-type"]}" == "application/x-www-form-urlencoded" ]]; then
 		IFS='&' read -rN "${REQ_HEADERS["Content-Length"]}" -a data
@@ -191,7 +185,7 @@ parsePostData(){
 
 parseCookieData(){
 	local -a cookie
-	local entry key value
+	local entry= key= value=
 	IFS=';' read -ra cookie <<<"${REQ_HEADERS["Cookie"]}"
 
 	for entry in "${cookie[@]}"; do
@@ -226,26 +220,3 @@ buildHttpHeaders() {
 		printf '%s: %s\n' "$key" "${RES_HEADERS[$key]}"
 	done
 }
-
-logPrint(){
-	local -A logformat
-	local output="${LOGFORMAT}"
-
-	logformat["%a"]=$RHOST
-	logformat["%A"]=$BIND_ADDRESS
-	logformat["%b"]=${RES_HEADERS["Content-Length"]}
-	logformat["%m"]=$REQ_METHOD
-	logformat["%q"]=$REQ_QUERY
-	logformat["%t"]=$TIME_FORMATTED
-	logformat["%s"]=${RES_HEADERS['status']%% *}
-	logformat["%T"]=$(( $(printf '%(%s)T' -1 ) - TIME_SECONDS))
-	logformat["%U"]=$REQ_URL
-
-	local key=
-	for key in "${!logformat[@]}"; do
-		output="${output//"$key"/"${logformat[$key]}"}"
-	done; unset -v key
-
-	cat <<< "$output" >> "$LOGFILE"
-}
-

@@ -22,8 +22,10 @@ http.template() {
 	http.serve 'foot.html'
 }
 
-
 http.public() {
+	local dir="$1"
+	local prefix="$2"
+
 	local file="$1"
 	local path="$BASALT_PACKAGE_DIR/pkg/share/public/$file"
 	if [ -f "$path" ]; then

@@ -16,12 +16,12 @@ util.ensure_nonzero() {
 	local name="$1"
 
 	if [ -z "$name" ]; then
-		bprint.fatal "Argument 'name' for function 'ensure.nonzero' is empty"
+		print.fatal "Argument 'name' for function 'ensure.nonzero' is empty"
 	fi
 
 	local -n value="$name"
 	if [ -z "$value" ]; then
-		bprint.fatal "Argument '$name' for function '${FUNCNAME[1]}' is empty"
+		print.fatal "Argument '$name' for function '${FUNCNAME[1]}' is empty"
 	fi
 }
 
@@ -31,6 +31,6 @@ util.ensure_cd() {
 	ensure.nonzero 'dir'
 
 	if ! cd "$dir"; then
-		bprint.fatal "Could not cd to directory '$dir'"
+		print.fatal "Could not cd to directory '$dir'"
 	fi
 }

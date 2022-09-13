@@ -1,7 +1,7 @@
-html {
-	background-color: blanchedalmond;
+:root {
+	--bg: rgb(118, 97, 65);
 }
 
-body {
-	background-color: aquamarine;
+html {
+	background-color: blanchedalmond;
 }

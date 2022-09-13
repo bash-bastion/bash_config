@@ -1,7 +1,10 @@
 # shellcheck shell=bash
 
-runner() {
+server() {
 	case $REQ_URL in
+	/public/*)
+		http.public "${REQ_URL#/public/}"
+		;;
 	/)
 		http.template 'root.html'
 		;;
@@ -40,9 +43,6 @@ runner() {
 		;;
 	/bindings)
 		http.template 'bindings.html'
-		;;
-	/public/*)
-		http.public "${REQ_URL#/public/}"
 		;;
 	*)
 		http.template '404.html'
