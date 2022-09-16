@@ -3,14 +3,13 @@
 # Original file MIT license (copyright dzove855). Modifications under BSD-3-Clause (copyright me)
 
 main.bash_config() {
-	sudo kill "$(fuser 8080/tcp |& awk '{print $2}')" || :
-
-	: "${HTTP_PORT:=8080}"
+	: "${PORT:=8080}"
 	: "${BIND_ADDRESS:=127.0.0.1}"
 	: "${TMPDIR:=/tmp}"; TMPDIR=${TMPDIR%/}
 	: "${LOGFORMAT:="[%t] - %a %m %U %s %b %T"}"
 	: "${LOGFILE:=access.log}"
 	: "${LOGGING:=1}"
+	HTTP_PORT=$PORT
 
 	# Setup mime types
 	local -A MIME_TYPES=()
@@ -43,6 +42,15 @@ main.bash_config() {
 	fi
 	run='server'
 
+	int_handler() {
+		local job=
+		for job in $(jobs -p); do
+			kill -9 "$job"
+		done
+		exit 1
+	}
+	trap 'int_handler' INT
+
 	# Listen
 	while :; do
 		print.info "Listening on address '$BIND_ADDRESS' on port '$HTTP_PORT'"
@@ -54,7 +62,8 @@ main.bash_config() {
 			# XXX: Accept puts the connection in a TIME_WAIT status.. :(
 			# Verifiy if bind_address is specified default to 127.0.0.1
 			# You should use the custom accept in order to use bind address and multiple connections
-			if ! accept -b "$BIND_ADDRESS" "${HTTP_PORT}"; then
+
+			if ! accept -b "$BIND_ADDRESS" "$HTTP_PORT"; then
 				print.die "Could not listen on ${BIND_ADDRESS}:${HTTP_PORT}"
 			fi
 			print.info "Spawning (ACCEPT_FD: $ACCEPT_FD)"
@@ -102,7 +111,7 @@ main.bash_config() {
 				"$run" > "$TMPDIR/output"
 
 				# Get content-length
-				if PATH='' type -p 'finfo' &>/dev/null; then
+				if PATH= type -p 'finfo' &>/dev/null; then
 					RES_HEADERS["Content-Length"]=$(finfo -s "$TMPDIR/output")
 				fi
 
