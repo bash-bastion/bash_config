@@ -10,6 +10,7 @@ server() {
 		;;
 	/dircolors)
 		http.template 'dircolors.html'
+		dircolors
 		;;
 	/prompt)
 		http.template 'prompt.html'
@@ -21,18 +22,27 @@ server() {
 		http.serve 'head.html'
 		http.serve 'options.html'
 		printf '%s\n' '<h2>set</h2>'
-		shopt -o
+		while read -r name value; do
+			printf '%s\n' "<div><input type=\"checkbox\"></input><span>$name</span></div>"
+		done < <(set -o)
+
 		printf '%s\n' '<h2>shopt</h2>'
-		shopt
+		while read -r name value; do
+			printf '%s\n' "<div><input type=\"checkbox\"></input><span>$name</span></div>"
+		done < <(shopt)
 		http.serve 'foot.html'
 		;;
 	/aliases)
-		http.template 'aliases.html'
+		# http.template 'aliases.html'
+		http.serve 'head.html'
+		alias -p
+		http.serve 'foot.html'
 		;;
 	/functions)
 		http.template 'functions.html'
 		;;
 	/history)
+		http.serve 'head.html'
 		HISTFILE="$XDG_STATE_HOME/history/bash_history" # TODO
 		local file="${HISTFILE:-"$HOME/.bash_history"}"
 
@@ -40,9 +50,13 @@ server() {
 			timestamp=${timestamp#\#}
 			printf '%s\n' "<p>$timestamp: ${cmd}</p>"
 		done < "$file"
+		http.serve 'foot.html'
 		;;
 	/bindings)
-		http.template 'bindings.html'
+		http.serve 'head.html'
+		# http.template 'bindings.html'
+		bind -v
+		http.serve 'foot.html'
 		;;
 	*)
 		http.template '404.html'

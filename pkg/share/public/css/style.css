@@ -1,7 +1,35 @@
-:root {
-	--bg: rgb(118, 97, 65);
+*, *::before, *::after {
+	box-sizing: border-box;
 }
 
-html {
-	background-color: blanchedalmond;
+:root {
+	color: #3f3;
+	background-color: #0c0c0c;
+	font-family: monospace;
+}
+
+a, a:hover, a:active, a:visited {
+	text-decoration: none;
+	color: #3f3;
+}
+
+a:active {
+	color: rgb(31, 252, 31);
+}
+
+header > a:not(:last-child) {
+	display: inline-block;
+	padding-inline-end: 10px;
+	border-radius: 2px;
+	margin: 5px;
+	background-color: #0f0f0f;
+}
+
+/* pages */
+main#variables > div > span {
+	margin-inline-end: 5px;
+}
+
+main#variables > div {
+	margin: 5px;
 }

@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 
-# Original file MIT license (copyright dzove855). Modifications under BSD-3-Clause (copyright me)
+# Original file MIT license (copyright dzove855). Modifications under MPL-2.0 (copyright me)
 
 main.bash_config() {
 	: "${PORT:=8080}"
@@ -13,6 +13,7 @@ main.bash_config() {
 
 	# Setup mime types
 	local -A MIME_TYPES=()
+	# shellcheck disable=SC1007
 	local types= extension=
 	while IFS= read -r types extension; do
 		read -ra extensions <<< "$extension"
@@ -36,6 +37,7 @@ main.bash_config() {
 	if [ -z "$arg" ]; then
 		print.die "Must profide file to source as first argument"
 	fi
+	# shellcheck disable=SC1090
 	source "$arg"
 	if ! declare -f server &>/dev/null; then
 			print.die 'The source file need a function nammed runner which will be executed on each request'
@@ -46,7 +48,7 @@ main.bash_config() {
 		local job=
 		for job in $(jobs -p); do
 			kill -9 "$job"
-		done
+		done; unset -vjob
 		exit 1
 	}
 	trap 'int_handler' INT
@@ -111,6 +113,7 @@ main.bash_config() {
 				"$run" > "$TMPDIR/output"
 
 				# Get content-length
+				# shellcheck disable=SC1007
 				if PATH= type -p 'finfo' &>/dev/null; then
 					RES_HEADERS["Content-Length"]=$(finfo -s "$TMPDIR/output")
 				fi
@@ -121,8 +124,8 @@ main.bash_config() {
 
 				buildHttpHeaders
 				printf '\n' # HTTP RFC 2616 send newline before body
-				printf '%s\n' "$(<"$TMPDIR/output")"
-				# cat "$TMPDIR/output"
+				# printf '%s\n' "$(<"$TMPDIR/output")"
+				cat "$TMPDIR/output"
 			} <& "${ACCEPT_FD}" >& "${ACCEPT_FD}"
 
 			# XXX: This is needed to close the connection to the client
